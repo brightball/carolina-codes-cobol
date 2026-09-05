@@ -1,0 +1,797 @@
+>>SOURCE FORMAT FREE
+*> Shipped GET router. Tests CALL "HANDLE-GET" without a live listen.
+IDENTIFICATION DIVISION.
+PROGRAM-ID. HANDLE-GET IS INITIAL.
+
+ENVIRONMENT DIVISION.
+CONFIGURATION SECTION.
+REPOSITORY.
+    FUNCTION ALL INTRINSIC.
+
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-PATH PIC X(512).
+01 WS-YEAR-Q PIC X(16).
+01 P1 PIC X(128).
+01 P2 PIC X(128).
+01 P3 PIC X(128).
+01 P4 PIC X(128).
+01 P5 PIC X(128).
+01 NPARTS PIC 9 VALUE 0.
+01 SQL-BUF PIC X(1024).
+01 ARG1 PIC X(256).
+01 ARG2 PIC X(256).
+01 NARGS USAGE BINARY-LONG VALUE 0.
+01 TSV PIC X(262144).
+01 TSV-TALKS PIC X(262144).
+01 ROW-JSON PIC X(16384).
+01 ROW-LEN USAGE BINARY-LONG VALUE 0.
+01 BODY-LEN USAGE BINARY-LONG VALUE 0.
+01 FIELD-JSON PIC X(8192).
+01 TAGS PIC X(2048).
+01 TAG-LEN USAGE BINARY-LONG VALUE 0.
+01 TOPICS-JSON PIC X(2048).
+01 ESC-IN PIC X(4096).
+01 ESC-OUT PIC X(8192).
+01 ESC-LEN USAGE BINARY-LONG VALUE 0.
+01 WS-SRC PIC X(16384).
+01 WS-CH PIC X.
+01 WS-I USAGE BINARY-LONG.
+01 WS-N USAGE BINARY-LONG.
+01 WS-J USAGE BINARY-LONG.
+01 WS-K USAGE BINARY-LONG.
+01 TSV-POS USAGE BINARY-LONG.
+01 COL-I USAGE BINARY-LONG.
+01 ROW-I USAGE BINARY-LONG.
+01 TALK-I USAGE BINARY-LONG.
+01 HDR-N USAGE BINARY-LONG VALUE 0.
+01 HDR-KEY PIC X(32) OCCURS 24 TIMES.
+01 RN USAGE BINARY-LONG VALUE 0.
+01 SP-TABLE.
+    05 SP-ROW OCCURS 64 TIMES.
+        10 SP-CELL PIC X(2048) OCCURS 24 TIMES.
+01 T-HDR-N USAGE BINARY-LONG VALUE 0.
+01 T-HDR-KEY PIC X(32) OCCURS 24 TIMES.
+01 TN USAGE BINARY-LONG VALUE 0.
+01 TK-TABLE.
+    05 TK-ROW OCCURS 128 TIMES.
+        10 TK-CELL PIC X(2048) OCCURS 24 TIMES.
+01 SPK-SLUG PIC X(128).
+01 TALK-SLUG PIC X(128).
+01 TAG-ITEM PIC X(2048).
+01 BODY-FIRST PIC 9 VALUE 1.
+01 ROW-FIRST PIC 9 VALUE 1.
+01 TAG-FIRST PIC 9 VALUE 1.
+01 SPEAKER-COLS PIC X(200) VALUE
+    "slug, first_name, last_name, name, tagline, bio, company, location, photo_path, twitter_url, linkedin_url, website_url, github_url, featured".
+01 YEAR-SPONSOR-COLS PIC X(220) VALUE
+    "slug, name, website, logo_path, description, blurb, tier, featured, year, twitter_url, linkedin_url, youtube_url, instagram_url, facebook_url".
+01 SPONSOR-COLS PIC X(180) VALUE
+    "slug, name, website, logo_path, description, twitter_url, linkedin_url, youtube_url, instagram_url, facebook_url".
+01 TALK-COLS PIC X(120) VALUE
+    "slug, title, description, format, youtube_id, year, speaker_slug, languages, topics".
+
+LINKAGE SECTION.
+01 LS-PATH PIC X(512).
+01 LS-YEAR PIC X(16).
+01 LS-STATUS PIC 9(3).
+01 LS-BODY PIC X(131072).
+
+PROCEDURE DIVISION USING LS-PATH LS-YEAR LS-STATUS LS-BODY.
+    MOVE FUNCTION TRIM(LS-PATH) TO WS-PATH
+    MOVE FUNCTION TRIM(LS-YEAR) TO WS-YEAR-Q
+    PERFORM NORMALIZE-PATH
+    PERFORM SPLIT-PATH
+    MOVE SPACES TO LS-BODY
+    MOVE 0 TO BODY-LEN
+    EVALUATE TRUE
+        WHEN WS-PATH = "/health"
+            MOVE 200 TO LS-STATUS
+            MOVE '{"status":"ok"}' TO LS-BODY
+        WHEN WS-PATH = "/"
+            MOVE 200 TO LS-STATUS
+            PERFORM BUILD-IDENTITY
+        WHEN WS-PATH = "/v1/years"
+            MOVE "SELECT year, slug, name, status FROM v1_years ORDER BY year DESC"
+                TO SQL-BUF
+            MOVE 0 TO NARGS
+            PERFORM RUN-QUERY
+            PERFORM TSV-TO-DATA-ARRAY
+            MOVE 200 TO LS-STATUS
+        WHEN WS-PATH = "/v1/speakers"
+            PERFORM LIST-SPEAKERS
+        WHEN NPARTS = 4 AND P1 = "v1" AND P2 = "speakers"
+             AND FUNCTION TEST-NUMVAL-C(P3) = 0
+            PERFORM SPEAKER-YEAR-DETAIL
+        WHEN NPARTS = 3 AND P1 = "v1" AND P2 = "speakers"
+            PERFORM SPEAKER-DETAIL
+        WHEN WS-PATH = "/v1/sponsors"
+            PERFORM LIST-SPONSORS
+        WHEN NPARTS = 4 AND P1 = "v1" AND P2 = "sponsors"
+             AND FUNCTION TEST-NUMVAL-C(P3) = 0
+            PERFORM SPONSOR-YEAR-DETAIL
+        WHEN NPARTS = 3 AND P1 = "v1" AND P2 = "sponsors"
+            PERFORM SPONSOR-DETAIL
+        WHEN OTHER
+            MOVE 404 TO LS-STATUS
+            MOVE '{"error":"not_found"}' TO LS-BODY
+    END-EVALUATE
+    GOBACK.
+
+NORMALIZE-PATH.
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-PATH)) TO WS-N
+    IF WS-N = 0
+        MOVE "/" TO WS-PATH
+    ELSE
+        IF WS-N > 1 AND WS-PATH(WS-N:1) = "/"
+            MOVE WS-PATH(1:WS-N - 1) TO WS-PATH
+        END-IF
+    END-IF.
+
+SPLIT-PATH.
+    MOVE SPACES TO P1 P2 P3 P4 P5
+    MOVE 0 TO NPARTS
+    UNSTRING WS-PATH DELIMITED BY "/" INTO P5 P1 P2 P3 P4
+        ON OVERFLOW CONTINUE
+    END-UNSTRING
+    MOVE FUNCTION TRIM(P1) TO P1
+    MOVE FUNCTION TRIM(P2) TO P2
+    MOVE FUNCTION TRIM(P3) TO P3
+    MOVE FUNCTION TRIM(P4) TO P4
+    IF P1 NOT = SPACES ADD 1 TO NPARTS END-IF
+    IF P2 NOT = SPACES ADD 1 TO NPARTS END-IF
+    IF P3 NOT = SPACES ADD 1 TO NPARTS END-IF
+    IF P4 NOT = SPACES ADD 1 TO NPARTS END-IF.
+
+BUILD-IDENTITY.
+    STRING
+        '{"language":"COBOL","language_version":"GnuCOBOL 3.2",'
+        '"api_version":"0.2.0","framework":"POSIX sockets",'
+        '"created_year":2026,"schema_version":1,"endpoints":['
+        '{"method":"GET","path":"/","query":[]},'
+        '{"method":"GET","path":"/health","query":[]},'
+        '{"method":"GET","path":"/v1/years","query":[]},'
+        '{"method":"GET","path":"/v1/speakers","query":["year"]},'
+        '{"method":"GET","path":"/v1/speakers/:slug","query":[]},'
+        '{"method":"GET","path":"/v1/speakers/:year/:slug","query":[]},'
+        '{"method":"GET","path":"/v1/sponsors","query":["year"]},'
+        '{"method":"GET","path":"/v1/sponsors/:slug","query":[]},'
+        '{"method":"GET","path":"/v1/sponsors/:year/:slug","query":[]}'
+        ']}'
+        DELIMITED BY SIZE INTO LS-BODY
+    END-STRING.
+
+RUN-QUERY.
+    MOVE SPACES TO TSV
+    CALL "CATALOG-QUERY" USING SQL-BUF ARG1 ARG2 NARGS TSV.
+
+LIST-SPEAKERS.
+    IF WS-YEAR-Q = SPACES
+        MOVE SPACES TO SQL-BUF
+        STRING "SELECT " DELIMITED BY SIZE
+            SPEAKER-COLS DELIMITED BY SIZE
+            " FROM v1_speakers ORDER BY last_name, first_name"
+            DELIMITED BY SIZE INTO SQL-BUF
+        MOVE 0 TO NARGS
+        PERFORM RUN-QUERY
+        PERFORM TSV-TO-DATA-ARRAY
+        MOVE 200 TO LS-STATUS
+    ELSE
+        PERFORM LIST-SPEAKERS-YEAR
+    END-IF.
+
+LIST-SPEAKERS-YEAR.
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE SPEAKER-COLS DELIMITED BY SIZE
+        " FROM v1_speakers WHERE slug IN"
+        " (SELECT speaker_slug FROM v1_talks WHERE year = $1)"
+        " ORDER BY last_name, first_name"
+        DELIMITED BY SIZE INTO SQL-BUF
+    MOVE WS-YEAR-Q TO ARG1
+    MOVE 1 TO NARGS
+    PERFORM RUN-QUERY
+    PERFORM PARSE-TSV
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE TALK-COLS DELIMITED BY SIZE
+        " FROM v1_talks WHERE year = $1 ORDER BY speaker_slug, year DESC"
+        DELIMITED BY SIZE INTO SQL-BUF
+    MOVE SPACES TO TSV-TALKS
+    CALL "CATALOG-QUERY" USING SQL-BUF ARG1 ARG2 NARGS TSV-TALKS
+    PERFORM PARSE-TALKS
+    PERFORM EMIT-SPEAKER-YEAR-LIST
+    MOVE 200 TO LS-STATUS.
+
+SPEAKER-DETAIL.
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE SPEAKER-COLS DELIMITED BY SIZE
+        " FROM v1_speakers WHERE slug = $1" DELIMITED BY SIZE INTO SQL-BUF
+    MOVE P3 TO ARG1
+    MOVE 1 TO NARGS
+    PERFORM RUN-QUERY
+    PERFORM PARSE-TSV
+    IF RN = 0
+        MOVE 404 TO LS-STATUS
+        MOVE '{"error":"not_found"}' TO LS-BODY
+        EXIT PARAGRAPH
+    END-IF
+    MOVE 1 TO ROW-I
+    PERFORM EMIT-ROW-TO-BUF
+    MOVE '{"data":' TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE ROW-JSON TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE "}" TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE 200 TO LS-STATUS.
+
+SPEAKER-YEAR-DETAIL.
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE SPEAKER-COLS DELIMITED BY SIZE
+        " FROM v1_speakers WHERE slug = $1" DELIMITED BY SIZE INTO SQL-BUF
+    MOVE P4 TO ARG1
+    MOVE 1 TO NARGS
+    PERFORM RUN-QUERY
+    PERFORM PARSE-TSV
+    IF RN = 0
+        MOVE 404 TO LS-STATUS
+        MOVE '{"error":"not_found"}' TO LS-BODY
+        EXIT PARAGRAPH
+    END-IF
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE TALK-COLS DELIMITED BY SIZE
+        " FROM v1_talks WHERE speaker_slug = $1 AND year = $2"
+        " ORDER BY year DESC" DELIMITED BY SIZE INTO SQL-BUF
+    MOVE P4 TO ARG1
+    MOVE P3 TO ARG2
+    MOVE 2 TO NARGS
+    MOVE SPACES TO TSV-TALKS
+    CALL "CATALOG-QUERY" USING SQL-BUF ARG1 ARG2 NARGS TSV-TALKS
+    PERFORM PARSE-TALKS
+    IF TN = 0
+        MOVE 404 TO LS-STATUS
+        MOVE '{"error":"not_found"}' TO LS-BODY
+        EXIT PARAGRAPH
+    END-IF
+    MOVE 1 TO ROW-I
+    PERFORM EMIT-ROW-TO-BUF
+    IF ROW-LEN > 0
+        SUBTRACT 1 FROM ROW-LEN
+    END-IF
+    PERFORM COLLECT-TAGS-FOR-ROW
+    MOVE ',"year":' TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE P3 TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE ',"languages":' TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE TAGS TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE ',"topics":' TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE TOPICS-JSON TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE "}" TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE '{"data":' TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE ROW-JSON TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE "}" TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE 200 TO LS-STATUS.
+
+LIST-SPONSORS.
+    IF WS-YEAR-Q = SPACES
+        MOVE SPACES TO SQL-BUF
+        STRING "SELECT " DELIMITED BY SIZE SPONSOR-COLS DELIMITED BY SIZE
+            " FROM v1_sponsors ORDER BY name" DELIMITED BY SIZE INTO SQL-BUF
+        MOVE 0 TO NARGS
+        PERFORM RUN-QUERY
+    ELSE
+        MOVE SPACES TO SQL-BUF
+        STRING "SELECT " DELIMITED BY SIZE YEAR-SPONSOR-COLS DELIMITED BY SIZE
+            " FROM v1_year_sponsors WHERE year = $1 ORDER BY name"
+            DELIMITED BY SIZE INTO SQL-BUF
+        MOVE WS-YEAR-Q TO ARG1
+        MOVE 1 TO NARGS
+        PERFORM RUN-QUERY
+    END-IF
+    PERFORM TSV-TO-DATA-ARRAY
+    MOVE 200 TO LS-STATUS.
+
+SPONSOR-DETAIL.
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE SPONSOR-COLS DELIMITED BY SIZE
+        " FROM v1_sponsors WHERE slug = $1" DELIMITED BY SIZE INTO SQL-BUF
+    MOVE P3 TO ARG1
+    MOVE 1 TO NARGS
+    PERFORM RUN-QUERY
+    PERFORM PARSE-TSV
+    IF RN = 0
+        MOVE 404 TO LS-STATUS
+        MOVE '{"error":"not_found"}' TO LS-BODY
+    ELSE
+        MOVE 1 TO ROW-I
+        PERFORM EMIT-ROW-TO-BUF
+        MOVE '{"data":' TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE ROW-JSON TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE "}" TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE 200 TO LS-STATUS
+    END-IF.
+
+SPONSOR-YEAR-DETAIL.
+    MOVE SPACES TO SQL-BUF
+    STRING "SELECT " DELIMITED BY SIZE YEAR-SPONSOR-COLS DELIMITED BY SIZE
+        " FROM v1_year_sponsors WHERE year = $1 AND slug = $2"
+        DELIMITED BY SIZE INTO SQL-BUF
+    MOVE P3 TO ARG1
+    MOVE P4 TO ARG2
+    MOVE 2 TO NARGS
+    PERFORM RUN-QUERY
+    PERFORM PARSE-TSV
+    IF RN = 0
+        MOVE 404 TO LS-STATUS
+        MOVE '{"error":"not_found"}' TO LS-BODY
+    ELSE
+        MOVE 1 TO ROW-I
+        PERFORM EMIT-ROW-TO-BUF
+        MOVE '{"data":' TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE ROW-JSON TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE "}" TO WS-SRC
+        PERFORM PUT-BODY
+        MOVE 200 TO LS-STATUS
+    END-IF.
+
+PARSE-TSV.
+    MOVE 0 TO HDR-N RN
+    IF TSV = SPACES
+        EXIT PARAGRAPH
+    END-IF
+    MOVE 1 TO TSV-POS
+    PERFORM PARSE-HEADER
+    PERFORM UNTIL TSV-POS > 262144
+        IF TSV(TSV-POS:1) = X"00"
+            EXIT PERFORM
+        END-IF
+        IF FUNCTION TRIM(TSV(TSV-POS:80)) = SPACES
+            EXIT PERFORM
+        END-IF
+        ADD 1 TO RN
+        IF RN > 64
+            EXIT PERFORM
+        END-IF
+        PERFORM PARSE-DATA-LINE
+    END-PERFORM.
+
+PARSE-HEADER.
+    MOVE 0 TO HDR-N
+    MOVE TSV-POS TO WS-J
+    PERFORM UNTIL TSV-POS > 262144
+            OR TSV(TSV-POS:1) = X"0A"
+            OR TSV(TSV-POS:1) = X"00"
+        IF TSV(TSV-POS:1) = X"09"
+            ADD 1 TO HDR-N
+            IF TSV-POS > WS-J
+                MOVE FUNCTION TRIM(TSV(WS-J:TSV-POS - WS-J))
+                    TO HDR-KEY(HDR-N)
+            ELSE
+                MOVE SPACES TO HDR-KEY(HDR-N)
+            END-IF
+            COMPUTE WS-J = TSV-POS + 1
+        END-IF
+        ADD 1 TO TSV-POS
+    END-PERFORM
+    IF TSV-POS > WS-J
+        ADD 1 TO HDR-N
+        MOVE FUNCTION TRIM(TSV(WS-J:TSV-POS - WS-J)) TO HDR-KEY(HDR-N)
+    END-IF
+    IF TSV(TSV-POS:1) = X"0A"
+        ADD 1 TO TSV-POS
+    END-IF.
+
+PARSE-DATA-LINE.
+    MOVE 1 TO WS-K
+    MOVE TSV-POS TO WS-J
+    PERFORM UNTIL TSV-POS > 262144
+            OR TSV(TSV-POS:1) = X"0A"
+            OR TSV(TSV-POS:1) = X"00"
+        IF TSV(TSV-POS:1) = X"09"
+            IF TSV-POS > WS-J
+                MOVE TSV(WS-J:TSV-POS - WS-J) TO SP-CELL(RN, WS-K)
+            ELSE
+                MOVE SPACES TO SP-CELL(RN, WS-K)
+            END-IF
+            ADD 1 TO WS-K
+            COMPUTE WS-J = TSV-POS + 1
+        END-IF
+        ADD 1 TO TSV-POS
+    END-PERFORM
+    IF TSV-POS > WS-J
+        MOVE TSV(WS-J:TSV-POS - WS-J) TO SP-CELL(RN, WS-K)
+    ELSE
+        MOVE SPACES TO SP-CELL(RN, WS-K)
+    END-IF
+    IF TSV(TSV-POS:1) = X"0A"
+        ADD 1 TO TSV-POS
+    END-IF.
+
+PARSE-TALKS.
+    MOVE 0 TO T-HDR-N TN
+    IF TSV-TALKS = SPACES
+        EXIT PARAGRAPH
+    END-IF
+    MOVE 1 TO TSV-POS
+    PERFORM PARSE-TALK-HEADER
+    PERFORM UNTIL TSV-POS > 262144
+        IF TSV-TALKS(TSV-POS:1) = X"00"
+            EXIT PERFORM
+        END-IF
+        IF FUNCTION TRIM(TSV-TALKS(TSV-POS:80)) = SPACES
+            EXIT PERFORM
+        END-IF
+        ADD 1 TO TN
+        IF TN > 128
+            EXIT PERFORM
+        END-IF
+        PERFORM PARSE-TALK-LINE
+    END-PERFORM.
+
+PARSE-TALK-HEADER.
+    MOVE 0 TO T-HDR-N
+    MOVE TSV-POS TO WS-J
+    PERFORM UNTIL TSV-POS > 262144
+            OR TSV-TALKS(TSV-POS:1) = X"0A"
+            OR TSV-TALKS(TSV-POS:1) = X"00"
+        IF TSV-TALKS(TSV-POS:1) = X"09"
+            ADD 1 TO T-HDR-N
+            IF TSV-POS > WS-J
+                MOVE FUNCTION TRIM(TSV-TALKS(WS-J:TSV-POS - WS-J))
+                    TO T-HDR-KEY(T-HDR-N)
+            ELSE
+                MOVE SPACES TO T-HDR-KEY(T-HDR-N)
+            END-IF
+            COMPUTE WS-J = TSV-POS + 1
+        END-IF
+        ADD 1 TO TSV-POS
+    END-PERFORM
+    IF TSV-POS > WS-J
+        ADD 1 TO T-HDR-N
+        MOVE FUNCTION TRIM(TSV-TALKS(WS-J:TSV-POS - WS-J))
+            TO T-HDR-KEY(T-HDR-N)
+    END-IF
+    IF TSV-TALKS(TSV-POS:1) = X"0A"
+        ADD 1 TO TSV-POS
+    END-IF.
+
+PARSE-TALK-LINE.
+    MOVE 1 TO WS-K
+    MOVE TSV-POS TO WS-J
+    PERFORM UNTIL TSV-POS > 262144
+            OR TSV-TALKS(TSV-POS:1) = X"0A"
+            OR TSV-TALKS(TSV-POS:1) = X"00"
+        IF TSV-TALKS(TSV-POS:1) = X"09"
+            IF TSV-POS > WS-J
+                MOVE TSV-TALKS(WS-J:TSV-POS - WS-J) TO TK-CELL(TN, WS-K)
+            ELSE
+                MOVE SPACES TO TK-CELL(TN, WS-K)
+            END-IF
+            ADD 1 TO WS-K
+            COMPUTE WS-J = TSV-POS + 1
+        END-IF
+        ADD 1 TO TSV-POS
+    END-PERFORM
+    IF TSV-POS > WS-J
+        MOVE TSV-TALKS(WS-J:TSV-POS - WS-J) TO TK-CELL(TN, WS-K)
+    ELSE
+        MOVE SPACES TO TK-CELL(TN, WS-K)
+    END-IF
+    IF TSV-TALKS(TSV-POS:1) = X"0A"
+        ADD 1 TO TSV-POS
+    END-IF.
+
+TSV-TO-DATA-ARRAY.
+    PERFORM PARSE-TSV
+    MOVE '{"data":[' TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE 1 TO BODY-FIRST
+    PERFORM VARYING ROW-I FROM 1 BY 1 UNTIL ROW-I > RN
+        PERFORM EMIT-ROW-TO-BUF
+        IF BODY-FIRST = 1
+            MOVE 0 TO BODY-FIRST
+        ELSE
+            MOVE "," TO WS-SRC
+            PERFORM PUT-BODY
+        END-IF
+        MOVE ROW-JSON TO WS-SRC
+        PERFORM PUT-BODY
+    END-PERFORM
+    MOVE "]}" TO WS-SRC
+    PERFORM PUT-BODY.
+
+EMIT-SPEAKER-YEAR-LIST.
+    MOVE '{"data":[' TO WS-SRC
+    PERFORM PUT-BODY
+    MOVE 1 TO BODY-FIRST
+    PERFORM VARYING ROW-I FROM 1 BY 1 UNTIL ROW-I > RN
+        PERFORM EMIT-ROW-TO-BUF
+        IF ROW-LEN > 0
+            SUBTRACT 1 FROM ROW-LEN
+        END-IF
+        PERFORM COLLECT-TAGS-FOR-ROW
+        MOVE ',"year":' TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE WS-YEAR-Q TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE ',"languages":' TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE TAGS TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE ',"topics":' TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE TOPICS-JSON TO WS-SRC
+        PERFORM PUT-ROW
+        MOVE "}" TO WS-SRC
+        PERFORM PUT-ROW
+        IF BODY-FIRST = 1
+            MOVE 0 TO BODY-FIRST
+        ELSE
+            MOVE "," TO WS-SRC
+            PERFORM PUT-BODY
+        END-IF
+        MOVE ROW-JSON TO WS-SRC
+        PERFORM PUT-BODY
+    END-PERFORM
+    MOVE "]}" TO WS-SRC
+    PERFORM PUT-BODY.
+
+EMIT-ROW-TO-BUF.
+    MOVE SPACES TO ROW-JSON
+    MOVE 0 TO ROW-LEN
+    MOVE "{" TO WS-SRC
+    PERFORM PUT-ROW
+    MOVE 1 TO ROW-FIRST
+    PERFORM VARYING COL-I FROM 1 BY 1 UNTIL COL-I > HDR-N
+        MOVE FUNCTION TRIM(HDR-KEY(COL-I)) TO ARG2
+        MOVE SP-CELL(ROW-I, COL-I) TO ESC-IN
+        PERFORM BUILD-JSON-FIELD
+        IF ROW-FIRST = 1
+            MOVE 0 TO ROW-FIRST
+        ELSE
+            MOVE "," TO WS-SRC
+            PERFORM PUT-ROW
+        END-IF
+        MOVE FIELD-JSON TO WS-SRC
+        PERFORM PUT-ROW
+    END-PERFORM
+    MOVE "}" TO WS-SRC
+    PERFORM PUT-ROW.
+
+BUILD-JSON-FIELD.
+    MOVE SPACES TO FIELD-JSON
+    MOVE FUNCTION TRIM(ARG2) TO SPK-SLUG
+    PERFORM JSON-ESCAPE
+    EVALUATE FUNCTION TRIM(SPK-SLUG)
+        WHEN "year"
+            STRING '"' DELIMITED BY SIZE
+                FUNCTION TRIM(SPK-SLUG) DELIMITED BY SIZE
+                '":' DELIMITED BY SIZE
+                FUNCTION TRIM(ESC-IN) DELIMITED BY SIZE
+                INTO FIELD-JSON
+        WHEN "languages"
+        WHEN "topics"
+            PERFORM PG-ARRAY-JSON
+            STRING '"' DELIMITED BY SIZE
+                FUNCTION TRIM(SPK-SLUG) DELIMITED BY SIZE
+                '":' DELIMITED BY SIZE
+                FUNCTION TRIM(TAGS) DELIMITED BY SIZE
+                INTO FIELD-JSON
+        WHEN "featured"
+            IF FUNCTION TRIM(ESC-IN) = "t"
+                    OR FUNCTION TRIM(ESC-IN) = "true"
+                    OR FUNCTION TRIM(ESC-IN) = "1"
+                STRING '"' DELIMITED BY SIZE
+                    FUNCTION TRIM(SPK-SLUG) DELIMITED BY SIZE
+                    '":true' DELIMITED BY SIZE
+                    INTO FIELD-JSON
+            ELSE
+                STRING '"' DELIMITED BY SIZE
+                    FUNCTION TRIM(SPK-SLUG) DELIMITED BY SIZE
+                    '":false' DELIMITED BY SIZE
+                    INTO FIELD-JSON
+            END-IF
+        WHEN OTHER
+            MOVE SPACES TO FIELD-JSON
+            MOVE '"' TO WS-CH
+            MOVE 0 TO WS-K
+            PERFORM PUT-FIELD-CH
+            MOVE FUNCTION TRIM(SPK-SLUG) TO WS-SRC
+            PERFORM PUT-FIELD-STR
+            MOVE '"' TO WS-CH
+            PERFORM PUT-FIELD-CH
+            MOVE ":" TO WS-CH
+            PERFORM PUT-FIELD-CH
+            MOVE '"' TO WS-CH
+            PERFORM PUT-FIELD-CH
+            IF ESC-LEN > 0
+                MOVE ESC-OUT TO WS-SRC
+                MOVE ESC-LEN TO WS-N
+                PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+                    ADD 1 TO WS-K
+                    MOVE WS-SRC(WS-I:1) TO FIELD-JSON(WS-K:1)
+                END-PERFORM
+            END-IF
+            MOVE '"' TO WS-CH
+            PERFORM PUT-FIELD-CH
+    END-EVALUATE.
+
+JSON-ESCAPE.
+    MOVE SPACES TO ESC-OUT
+    MOVE 0 TO ESC-LEN
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(ESC-IN)) TO WS-N
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+        MOVE ESC-IN(WS-I:1) TO WS-CH
+        IF WS-CH = '"'
+            ADD 1 TO ESC-LEN
+            MOVE "\" TO ESC-OUT(ESC-LEN:1)
+            ADD 1 TO ESC-LEN
+            MOVE '"' TO ESC-OUT(ESC-LEN:1)
+        ELSE
+            IF WS-CH = "\"
+                ADD 1 TO ESC-LEN
+                MOVE "\" TO ESC-OUT(ESC-LEN:1)
+                ADD 1 TO ESC-LEN
+                MOVE "\" TO ESC-OUT(ESC-LEN:1)
+            ELSE
+                ADD 1 TO ESC-LEN
+                MOVE WS-CH TO ESC-OUT(ESC-LEN:1)
+            END-IF
+        END-IF
+    END-PERFORM.
+
+PG-ARRAY-JSON.
+    MOVE SPACES TO TAGS
+    MOVE 0 TO TAG-LEN
+    MOVE 1 TO TAG-FIRST
+    MOVE FUNCTION TRIM(ESC-IN) TO ESC-IN
+    IF ESC-IN(1:1) = "["
+        MOVE FUNCTION TRIM(ESC-IN) TO TAGS
+        EXIT PARAGRAPH
+    END-IF
+    IF ESC-IN(1:1) = "{"
+        MOVE FUNCTION TRIM(ESC-IN(2:)) TO ESC-IN
+        MOVE FUNCTION LENGTH(FUNCTION TRIM(ESC-IN)) TO WS-N
+        IF WS-N > 0 AND (ESC-IN(WS-N:1) = "}" OR ESC-IN(WS-N:1) = "]")
+            IF WS-N > 1
+                MOVE ESC-IN(1:WS-N - 1) TO ESC-IN
+            ELSE
+                MOVE SPACES TO ESC-IN
+            END-IF
+        END-IF
+    END-IF
+    IF FUNCTION TRIM(ESC-IN) = SPACES
+        MOVE "[]" TO TAGS
+        EXIT PARAGRAPH
+    END-IF
+    MOVE "[" TO WS-CH
+    PERFORM PUT-TAG-CH
+    MOVE 1 TO WS-I
+    PERFORM UNTIL WS-I > 2048
+        MOVE SPACES TO TAG-ITEM
+        MOVE 0 TO WS-J
+        PERFORM UNTIL WS-I > 2048
+            IF ESC-IN(WS-I:1) = "," OR ESC-IN(WS-I:1) = SPACES
+                    OR ESC-IN(WS-I:1) = X"00"
+                EXIT PERFORM
+            END-IF
+            IF ESC-IN(WS-I:1) NOT = '"'
+                ADD 1 TO WS-J
+                MOVE ESC-IN(WS-I:1) TO TAG-ITEM(WS-J:1)
+            END-IF
+            ADD 1 TO WS-I
+        END-PERFORM
+        IF WS-J > 0
+            IF TAG-FIRST = 0
+                MOVE "," TO WS-CH
+                PERFORM PUT-TAG-CH
+            ELSE
+                MOVE 0 TO TAG-FIRST
+            END-IF
+            MOVE '"' TO WS-CH
+            PERFORM PUT-TAG-CH
+            MOVE FUNCTION TRIM(TAG-ITEM) TO WS-SRC
+            MOVE FUNCTION LENGTH(FUNCTION TRIM(TAG-ITEM)) TO WS-N
+            PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-N
+                MOVE WS-SRC(WS-K:1) TO WS-CH
+                PERFORM PUT-TAG-CH
+            END-PERFORM
+            MOVE '"' TO WS-CH
+            PERFORM PUT-TAG-CH
+        END-IF
+        IF ESC-IN(WS-I:1) = ","
+            ADD 1 TO WS-I
+        ELSE
+            EXIT PERFORM
+        END-IF
+    END-PERFORM
+    MOVE "]" TO WS-CH
+    PERFORM PUT-TAG-CH.
+
+PUT-TAG-CH.
+    ADD 1 TO TAG-LEN
+    IF TAG-LEN <= 2048
+        MOVE WS-CH TO TAGS(TAG-LEN:1)
+    END-IF.
+
+PUT-FIELD-CH.
+    ADD 1 TO WS-K
+    IF WS-K <= 8192
+        MOVE WS-CH TO FIELD-JSON(WS-K:1)
+    END-IF.
+
+PUT-FIELD-STR.
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-SRC)) TO WS-N
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+        MOVE WS-SRC(WS-I:1) TO WS-CH
+        PERFORM PUT-FIELD-CH
+    END-PERFORM.
+
+COLLECT-TAGS-FOR-ROW.
+    MOVE "[]" TO TAGS
+    MOVE "[]" TO TOPICS-JSON
+    MOVE SPACES TO SPK-SLUG
+    PERFORM VARYING COL-I FROM 1 BY 1 UNTIL COL-I > HDR-N
+        IF FUNCTION TRIM(HDR-KEY(COL-I)) = "slug"
+            MOVE FUNCTION TRIM(SP-CELL(ROW-I, COL-I)) TO SPK-SLUG
+        END-IF
+    END-PERFORM
+    PERFORM VARYING TALK-I FROM 1 BY 1 UNTIL TALK-I > TN
+        MOVE SPACES TO TALK-SLUG
+        PERFORM VARYING COL-I FROM 1 BY 1 UNTIL COL-I > T-HDR-N
+            IF FUNCTION TRIM(T-HDR-KEY(COL-I)) = "speaker_slug"
+                MOVE FUNCTION TRIM(TK-CELL(TALK-I, COL-I)) TO TALK-SLUG
+            END-IF
+        END-PERFORM
+        IF FUNCTION TRIM(TALK-SLUG) = FUNCTION TRIM(SPK-SLUG)
+            PERFORM VARYING COL-I FROM 1 BY 1 UNTIL COL-I > T-HDR-N
+                IF FUNCTION TRIM(T-HDR-KEY(COL-I)) = "languages"
+                    MOVE TK-CELL(TALK-I, COL-I) TO ESC-IN
+                    PERFORM PG-ARRAY-JSON
+                END-IF
+            END-PERFORM
+            MOVE TAGS TO FIELD-JSON
+            PERFORM VARYING COL-I FROM 1 BY 1 UNTIL COL-I > T-HDR-N
+                IF FUNCTION TRIM(T-HDR-KEY(COL-I)) = "topics"
+                    MOVE TK-CELL(TALK-I, COL-I) TO ESC-IN
+                    PERFORM PG-ARRAY-JSON
+                    MOVE TAGS TO TOPICS-JSON
+                END-IF
+            END-PERFORM
+            MOVE FIELD-JSON TO TAGS
+            EXIT PERFORM
+        END-IF
+    END-PERFORM.
+
+PUT-BODY.
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-SRC)) TO WS-N
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+        ADD 1 TO BODY-LEN
+        IF BODY-LEN <= 131072
+            MOVE WS-SRC(WS-I:1) TO LS-BODY(BODY-LEN:1)
+        END-IF
+    END-PERFORM.
+
+PUT-ROW.
+    MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-SRC)) TO WS-N
+    PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+        ADD 1 TO ROW-LEN
+        IF ROW-LEN <= 16384
+            MOVE WS-SRC(WS-I:1) TO ROW-JSON(ROW-LEN:1)
+        END-IF
+    END-PERFORM.
+
+END PROGRAM HANDLE-GET.

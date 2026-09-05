@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Launch the GnuCOBOL polyglot API.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GNUCBOBOL="${GNUCBOBOL:-$HOME/.local/opt/gnucobol-3.2}"
+if [[ -x "$GNUCBOBOL/bin/cobc" ]]; then
+  export PATH="$GNUCBOBOL/bin:$PATH"
+  export LD_LIBRARY_PATH="$GNUCBOBOL/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+if [[ ! -x "$ROOT/bin/carolina-cobol" ]]; then
+  make -C "$ROOT" server
+fi
+exec "$ROOT/bin/carolina-cobol"

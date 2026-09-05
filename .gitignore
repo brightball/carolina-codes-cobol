@@ -1,0 +1,7 @@
+/bin/carolina-cobol
+/bin/test
+*.c.h
+*.i
+*.so
+*.o
+/cobtmp/
