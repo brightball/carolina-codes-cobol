@@ -24,6 +24,7 @@ PROCEDURE DIVISION.
     PERFORM TEST-HEALTH-SLASH
     PERFORM TEST-IDENTITY
     PERFORM TEST-UNKNOWN-SLUG
+    PERFORM TEST-SPEAKER-LIST
     PERFORM TEST-YEAR-SPEAKERS
     PERFORM TEST-YEAR-SPONSORS
     PERFORM TEST-YEARS
@@ -134,6 +135,28 @@ TEST-UNKNOWN-SLUG.
         DISPLAY "ok: 404 body is not_found"
     ELSE
         DISPLAY "FAIL: 404 body is not_found"
+        ADD 1 TO FAILED
+    END-IF.
+
+TEST-SPEAKER-LIST.
+    MOVE SPACES TO FAKE-SQL-LOG
+    MOVE "/v1/speakers" TO PATH
+    MOVE SPACES TO YEAR-Q
+    CALL "HANDLE-GET" USING PATH YEAR-Q STATUS-CODE BODY
+    IF STATUS-CODE = 200
+        DISPLAY "ok: unscoped speakers return 200"
+    ELSE
+        DISPLAY "FAIL: unscoped speakers return 200 got " STATUS-CODE
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"slug":"diana-pham"'
+    IF HIT >= 65
+        DISPLAY "ok: unscoped speakers keep more than 64 rows ("
+            FUNCTION TRIM(HIT) ")"
+    ELSE
+        DISPLAY "FAIL: unscoped speakers truncated at 64, got "
+            FUNCTION TRIM(HIT)
         ADD 1 TO FAILED
     END-IF.
 

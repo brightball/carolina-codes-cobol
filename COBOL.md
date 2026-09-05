@@ -77,6 +77,7 @@ After that, `cobc (GnuCOBOL) 3.2.0` and a hello program printed `hello from gnuc
 4. **Live JSON was invalid** until `MOVE SPACES TO FIELD-JSON` before every `STRING INTO`. Years rendered as `"year":2025ast` because `"status":"past"` leftover `ast"` sat in the buffer. Classic COBOL, invisible until `carolina_dev` had more than one row.
 5. **Handler tests** (`make test`) drive `HANDLE-GET`: `/health` JSON with `"status"` and `"ok"`, 404 unknown slug, year-scoped speakers include `languages`/`topics` from `v1_talks`, year-scoped sponsors include `tier`. Passed after (3).
 6. **Two live launches on :4027** with the AGENTS.md env vars. Each run: register `200` against Phoenix `:4000`, `GET /health` → `{"status":"ok"}`, `GET /` → COBOL + POSIX sockets, `GET /v1/speakers?year=2026` → 27 rows with `languages`/`topics`, `GET /v1/sponsors?year=2026` → 29 rows with `tier`.
+7. **`OCCURS 64` dropped speakers.** `carolina_dev` has 94 `v1_speakers` rows (and 64 sponsors, so the cap was already tight). `PARSE-TSV` did `ADD 1 TO RN` then `IF RN > 64 EXIT PERFORM`, so RN became 65 and `EMIT-ROW-TO-BUF` indexed `SP-CELL(65)` past the table. Tables are `OCCURS 256` (`SP-CAP` / `TK-CAP`); the guard is now `IF RN >= SP-CAP EXIT` **before** incrementing. Tests `CALL "HANDLE-GET"` on `/v1/speakers` with 80 fake rows and require at least 65 `"slug"` hits.
 
 ### Layout
 
