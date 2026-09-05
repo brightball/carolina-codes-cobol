@@ -15,7 +15,8 @@ COPY src /src/app/src
 WORKDIR /src/app
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN cobc -x -O -o /src/carolina-cobol \
-      src/server.cob src/handler.cob src/catalog.cob src/pq.c src/listen6.c -lpq
+      src/server.cob src/handler.cob src/catalog.cob src/pq.c src/listen6.c \
+      -lpq -A "-I/usr/include/postgresql"
 
 FROM debian:bookworm-slim
 RUN apt-get update \
