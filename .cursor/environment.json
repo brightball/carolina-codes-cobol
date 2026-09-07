@@ -1,0 +1,14 @@
+{
+  "name": "carolina-codes-cobol",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "install": "make",
+  "ports": [
+    {
+      "name": "api",
+      "port": 4027
+    }
+  ]
+}
