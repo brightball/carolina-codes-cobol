@@ -145,7 +145,7 @@ FILL-TALK.
         "slug" TAB "title" TAB "description" TAB "format" TAB
         "youtube_id" TAB "year" TAB "speaker_slug" TAB
         "languages" TAB "topics" NL
-        "talk" TAB "Talk" TAB TAB TAB TAB "2026" TAB
+        "talk" TAB "Talk" TAB TAB TAB "dPhamYtFix01" TAB "2026" TAB
         "diana-pham" TAB "{php}" TAB "{development}" NL
         DELIMITED BY SIZE INTO TSV.
 

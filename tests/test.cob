@@ -26,6 +26,7 @@ PROCEDURE DIVISION.
     PERFORM TEST-UNKNOWN-SLUG
     PERFORM TEST-SPEAKER-LIST
     PERFORM TEST-YEAR-SPEAKERS
+    PERFORM TEST-YEAR-SPEAKER-DETAIL
     PERFORM TEST-YEAR-SPONSORS
     PERFORM TEST-YEARS
     IF FAILED > 0
@@ -209,6 +210,37 @@ TEST-YEAR-SPEAKERS.
         DISPLAY "ok: does not query v1_year_speakers"
     ELSE
         DISPLAY "FAIL: does not query v1_year_speakers"
+        ADD 1 TO FAILED
+    END-IF.
+
+TEST-YEAR-SPEAKER-DETAIL.
+    MOVE SPACES TO FAKE-SQL-LOG
+    MOVE "/v1/speakers/2025/diana-pham" TO PATH
+    MOVE SPACES TO YEAR-Q
+    CALL "HANDLE-GET" USING PATH YEAR-Q STATUS-CODE BODY
+    IF STATUS-CODE = 200
+        DISPLAY "ok: year-scoped speaker detail returns 200"
+    ELSE
+        DISPLAY "FAIL: year-scoped speaker detail returns 200 got "
+            STATUS-CODE
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"talks"'
+    IF HIT > 0
+        DISPLAY "ok: year-scoped speaker detail has talks"
+    ELSE
+        DISPLAY "FAIL: year-scoped speaker detail has talks body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"youtube_id":"dPhamYtFix01"'
+    IF HIT > 0
+        DISPLAY "ok: year-scoped speaker detail has fixture youtube_id"
+    ELSE
+        DISPLAY "FAIL: year-scoped speaker detail has fixture youtube_id body="
+            FUNCTION TRIM(BODY)
         ADD 1 TO FAILED
     END-IF.
 
