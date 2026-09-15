@@ -14,7 +14,8 @@
 
 static int env_int(const char *name, int fallback) {
   const char *v = getenv(name);
-  if (!v || !v[0]) return fallback;
+  if (!v || !v[0])
+    return fallback;
   return atoi(v);
 }
 
@@ -44,7 +45,8 @@ void carolina_listen(int *port, int *fd) {
     close(s);
     return;
   }
-  if (port) *port = p;
+  if (port)
+    *port = p;
   *fd = s;
   fprintf(stdout, "carolina-codes-cobol listening on [::]:%d\n", p);
   fflush(stdout);
@@ -53,7 +55,8 @@ void carolina_listen(int *port, int *fd) {
 void carolina_accept(int *listen_fd, int *client_fd) {
   int c;
   *client_fd = -1;
-  if (!listen_fd || *listen_fd < 0) return;
+  if (!listen_fd || *listen_fd < 0)
+    return;
   c = accept(*listen_fd, NULL, NULL);
   if (c < 0) {
     fprintf(stderr, "accept: %s\n", strerror(errno));
@@ -65,17 +68,21 @@ void carolina_accept(int *listen_fd, int *client_fd) {
 void carolina_recv(int *fd, char *buf, int *cap, int *n) {
   int got = 0, c = cap ? *cap : 0;
   *n = 0;
-  if (!fd || *fd < 0 || !buf || c <= 0) return;
+  if (!fd || *fd < 0 || !buf || c <= 0)
+    return;
   while (got < c - 1) {
     int k = (int)recv(*fd, buf + got, (size_t)(c - 1 - got), 0);
     if (k < 0) {
-      if (errno == EINTR) continue;
+      if (errno == EINTR)
+        continue;
       break;
     }
-    if (k == 0) break;
+    if (k == 0)
+      break;
     got += k;
     buf[got] = 0;
-    if (strstr(buf, "\r\n\r\n") || strstr(buf, "\n\n")) break;
+    if (strstr(buf, "\r\n\r\n") || strstr(buf, "\n\n"))
+      break;
   }
   buf[got] = 0;
   *n = got;
@@ -85,14 +92,17 @@ void carolina_send(int *fd, char *buf, int *n, int *sent) {
   int left = n ? *n : 0;
   int off = 0;
   *sent = 0;
-  if (!fd || *fd < 0 || !buf) return;
+  if (!fd || *fd < 0 || !buf)
+    return;
   while (off < left) {
     int k = (int)send(*fd, buf + off, (size_t)(left - off), 0);
     if (k < 0) {
-      if (errno == EINTR) continue;
+      if (errno == EINTR)
+        continue;
       return;
     }
-    if (k == 0) return;
+    if (k == 0)
+      return;
     off += k;
   }
   *sent = off;
@@ -111,12 +121,16 @@ static void parse_host_port(const char *url, char *host, size_t hostn, int *port
   char *colon, *slash;
   *port = 80;
   snprintf(host, hostn, "127.0.0.1");
-  if (!rest || !rest[0]) return;
-  if (!strncmp(rest, "http://", 7)) rest += 7;
-  else if (!strncmp(rest, "https://", 8)) rest += 8;
+  if (!rest || !rest[0])
+    return;
+  if (!strncmp(rest, "http://", 7))
+    rest += 7;
+  else if (!strncmp(rest, "https://", 8))
+    rest += 8;
   snprintf(tmp, sizeof tmp, "%s", rest);
   slash = strchr(tmp, '/');
-  if (slash) *slash = 0;
+  if (slash)
+    *slash = 0;
   colon = strrchr(tmp, ':');
   if (colon && colon != tmp && colon[-1] != ']') {
     *colon = 0;
@@ -136,25 +150,24 @@ void carolina_register(void) {
   int port, fd, n, k;
   struct addrinfo hints, *res = NULL, *rp;
   char portstr[16];
-  const char *endpoints =
-      "["
-      "{\"method\":\"GET\",\"path\":\"/\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/health\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/years\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/speakers\",\"query\":[\"year\"]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/speakers/:slug\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/speakers/:year/:slug\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/sponsors\",\"query\":[\"year\"]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/sponsors/:slug\",\"query\":[]},"
-      "{\"method\":\"GET\",\"path\":\"/v1/sponsors/:year/:slug\",\"query\":[]}"
-      "]";
+  const char *endpoints = "["
+                          "{\"method\":\"GET\",\"path\":\"/\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/health\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/years\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/speakers\",\"query\":[\"year\"]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/speakers/:slug\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/speakers/:year/:slug\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/sponsors\",\"query\":[\"year\"]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/sponsors/:slug\",\"query\":[]},"
+                          "{\"method\":\"GET\",\"path\":\"/v1/sponsors/:year/:slug\",\"query\":[]}"
+                          "]";
 
-  if (!url || !url[0] || !token || !token[0]) return;
+  if (!url || !url[0] || !token || !token[0])
+    return;
   parse_host_port(url, host, sizeof host, &port);
   if (!base || !base[0]) {
     static char fallback[64];
-    snprintf(fallback, sizeof fallback, "http://127.0.0.1:%d",
-             env_int("PORT", 4027));
+    snprintf(fallback, sizeof fallback, "http://127.0.0.1:%d", env_int("PORT", 4027));
     base = fallback;
   }
   snprintf(body, sizeof body,
@@ -182,8 +195,10 @@ void carolina_register(void) {
   fd = -1;
   for (rp = res; rp; rp = rp->ai_next) {
     fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-    if (fd < 0) continue;
-    if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+    if (fd < 0)
+      continue;
+    if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0)
+      break;
     close(fd);
     fd = -1;
   }
@@ -196,16 +211,17 @@ void carolina_register(void) {
   k = 0;
   while (k < n) {
     int w = (int)send(fd, req + k, (size_t)(n - k), 0);
-    if (w <= 0) break;
+    if (w <= 0)
+      break;
     k += w;
   }
   n = (int)recv(fd, resp, sizeof resp - 1, 0);
-  if (n < 0) n = 0;
+  if (n < 0)
+    n = 0;
   resp[n] = 0;
   {
     char *sp = strchr(resp, ' ');
-    fprintf(stderr, "registered with elixir: %s\n",
-            sp ? sp + 1 : resp);
+    fprintf(stderr, "registered with elixir: %s\n", sp ? sp + 1 : resp);
   }
   close(fd);
 }

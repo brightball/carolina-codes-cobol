@@ -1,0 +1,119 @@
+# One Gitea Actions job per check. Not a single combined job.
+# No needs: between the five; they clone GITHUB_SHA independently.
+#
+# Empty runner image: clone GITHUB_SHA with the job token over HTTPS.
+# Gitea git HTTP returns 401 without the token. Do not git init or set
+# init.defaultBranch here. Do not use actions/checkout.
+#
+# GnuCOBOL: Debian bookworm's cobc 3.1.2 plus -free compiles these
+# free-format sources and the HANDLE-GET tests (verified). Production
+# still ships GnuCOBOL 3.2 from the Dockerfile.
+name: precommit
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: precommit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libgmp-dev gnucobol
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: make test
+
+  sast:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libpq-dev pkg-config
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: make sast
+
+  audit:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make curl tar
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: |
+          curl -sSfL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            | tar -xz -C /usr/local/bin trivy
+          make audit
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make curl tar
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+          make gitleaks
+
+  lint:
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libgmp-dev gnucobol clang-format
+      - run: |
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
+          git fetch --depth 1 origin "${GITHUB_SHA}"
+          git checkout --force FETCH_HEAD
+      - run: make lint

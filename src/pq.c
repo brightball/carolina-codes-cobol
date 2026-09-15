@@ -7,7 +7,8 @@
 
 static void append(char *out, int *n, int cap, const char *s) {
   size_t L = strlen(s);
-  if (*n + (int)L >= cap) return;
+  if (*n + (int)L >= cap)
+    return;
   memcpy(out + *n, s, L);
   *n += (int)L;
   out[*n] = 0;
@@ -15,7 +16,8 @@ static void append(char *out, int *n, int cap, const char *s) {
 
 static void append_cell(char *out, int *n, int cap, const char *s) {
   for (; s && *s; s++) {
-    if (*n + 2 >= cap) return;
+    if (*n + 2 >= cap)
+      return;
     if (*s == '\t' || *s == '\n' || *s == '\r')
       out[(*n)++] = ' ';
     else
@@ -35,7 +37,8 @@ int carolina_query(char *sql, char *a1, char *a2, int *nargs, char *out) {
   const int cap = 262143;
 
   out[0] = 0;
-  if (!sql || !sql[0]) return 0;
+  if (!sql || !sql[0])
+    return 0;
 
   if (!conn) {
     const char *dsn = getenv("DATABASE_URL");
@@ -45,8 +48,7 @@ int carolina_query(char *sql, char *a1, char *a2, int *nargs, char *out) {
     snprintf(dsnbuf, sizeof dsnbuf, "%s", dsn);
     if (!strstr(dsnbuf, "sslmode=")) {
       size_t L = strlen(dsnbuf);
-      snprintf(dsnbuf + L, sizeof dsnbuf - L, "%ssslmode=disable",
-               strchr(dsnbuf, '?') ? "&" : "?");
+      snprintf(dsnbuf + L, sizeof dsnbuf - L, "%ssslmode=disable", strchr(dsnbuf, '?') ? "&" : "?");
     }
     connect_count++;
     conn = PQconnectdb(dsnbuf);
@@ -64,21 +66,23 @@ int carolina_query(char *sql, char *a1, char *a2, int *nargs, char *out) {
   else
     res = PQexecParams(conn, sql, n, NULL, vals, NULL, NULL, 0);
 
-  if (!res || (PQresultStatus(res) != PGRES_TUPLES_OK &&
-               PQresultStatus(res) != PGRES_COMMAND_OK)) {
-    if (res) PQclear(res);
+  if (!res || (PQresultStatus(res) != PGRES_TUPLES_OK && PQresultStatus(res) != PGRES_COMMAND_OK)) {
+    if (res)
+      PQclear(res);
     return -1;
   }
   nt = PQntuples(res);
   nf = PQnfields(res);
   for (f = 0; f < nf; f++) {
-    if (f) append(out, &pos, cap, "\t");
+    if (f)
+      append(out, &pos, cap, "\t");
     append_cell(out, &pos, cap, PQfname(res, f));
   }
   append(out, &pos, cap, "\n");
   for (r = 0; r < nt; r++) {
     for (f = 0; f < nf; f++) {
-      if (f) append(out, &pos, cap, "\t");
+      if (f)
+        append(out, &pos, cap, "\t");
       if (!PQgetisnull(res, r, f))
         append_cell(out, &pos, cap, PQgetvalue(res, r, f));
     }

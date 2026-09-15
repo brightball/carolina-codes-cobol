@@ -21,10 +21,12 @@ RUN cobc -x -O -o /src/carolina-cobol \
 FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libpq5 libgmp10 ca-certificates \
+ && useradd --system --no-create-home --uid 65532 carolina \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/lib/libcob.so* /usr/local/lib/
 COPY --from=build /src/carolina-cobol /usr/local/bin/carolina-cobol
 ENV LD_LIBRARY_PATH=/usr/local/lib
 ENV PORT=8080
 EXPOSE 8080
+USER carolina
 CMD ["/usr/local/bin/carolina-cobol"]
