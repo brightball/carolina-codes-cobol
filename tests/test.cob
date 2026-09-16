@@ -27,6 +27,8 @@ PROCEDURE DIVISION.
     PERFORM TEST-SPEAKER-LIST
     PERFORM TEST-YEAR-SPEAKERS
     PERFORM TEST-YEAR-SPEAKER-DETAIL
+    PERFORM TEST-SPEAKER-BLANK-WEBSITE
+    PERFORM TEST-SPEAKER-PRESENT-WEBSITE
     PERFORM TEST-YEAR-SPONSORS
     PERFORM TEST-YEARS
     IF FAILED > 0
@@ -240,6 +242,76 @@ TEST-YEAR-SPEAKER-DETAIL.
         DISPLAY "ok: year-scoped speaker detail has fixture youtube_id"
     ELSE
         DISPLAY "FAIL: year-scoped speaker detail has fixture youtube_id body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"website_url":""'
+    IF HIT = 0
+        DISPLAY "ok: year-scoped speaker detail has no empty website_url string"
+    ELSE
+        DISPLAY "FAIL: year-scoped speaker detail has empty website_url string body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"website_url":null'
+    IF HIT > 0
+        DISPLAY "ok: year-scoped speaker detail website_url is JSON null"
+    ELSE
+        DISPLAY "FAIL: year-scoped speaker detail website_url is JSON null body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF.
+
+TEST-SPEAKER-BLANK-WEBSITE.
+    MOVE SPACES TO FAKE-SQL-LOG
+    MOVE "/v1/speakers/diana-pham" TO PATH
+    MOVE SPACES TO YEAR-Q
+    CALL "HANDLE-GET" USING PATH YEAR-Q STATUS-CODE BODY
+    IF STATUS-CODE = 200
+        DISPLAY "ok: unscoped speaker detail returns 200"
+    ELSE
+        DISPLAY "FAIL: unscoped speaker detail returns 200 got " STATUS-CODE
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"website_url":""'
+    IF HIT = 0
+        DISPLAY "ok: blank website_url is not an empty JSON string"
+    ELSE
+        DISPLAY "FAIL: blank website_url is not an empty JSON string body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL '"website_url":null'
+    IF HIT > 0
+        DISPLAY "ok: blank website_url is JSON null"
+    ELSE
+        DISPLAY "FAIL: blank website_url is JSON null body="
+            FUNCTION TRIM(BODY)
+        ADD 1 TO FAILED
+    END-IF.
+
+TEST-SPEAKER-PRESENT-WEBSITE.
+    MOVE SPACES TO FAKE-SQL-LOG
+    MOVE "/v1/speakers/ada-lovelace" TO PATH
+    MOVE SPACES TO YEAR-Q
+    CALL "HANDLE-GET" USING PATH YEAR-Q STATUS-CODE BODY
+    IF STATUS-CODE = 200
+        DISPLAY "ok: speaker with website returns 200"
+    ELSE
+        DISPLAY "FAIL: speaker with website returns 200 got " STATUS-CODE
+        ADD 1 TO FAILED
+    END-IF
+    MOVE 0 TO HIT
+    INSPECT BODY TALLYING HIT FOR ALL
+        '"website_url":"https://example.com/ada-lovelace"'
+    IF HIT > 0
+        DISPLAY "ok: present website_url is the catalog URL"
+    ELSE
+        DISPLAY "FAIL: present website_url is the catalog URL body="
             FUNCTION TRIM(BODY)
         ADD 1 TO FAILED
     END-IF.

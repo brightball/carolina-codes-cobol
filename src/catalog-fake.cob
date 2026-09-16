@@ -66,7 +66,11 @@ PROCEDURE DIVISION USING SQL ARG1 ARG2 NARGS TSV.
             IF SLUG = "diana-pham"
                 PERFORM FILL-SPEAKER
             ELSE
-                PERFORM FILL-SPEAKER-HEADER
+                IF SLUG = "ada-lovelace"
+                    PERFORM FILL-SPEAKER-WEBSITE
+                ELSE
+                    PERFORM FILL-SPEAKER-HEADER
+                END-IF
             END-IF
         WHEN HIT-TALKS > 0
             PERFORM FILL-TALK
@@ -105,6 +109,17 @@ FILL-SPEAKER.
         "website_url" TAB "github_url" TAB "featured" NL
         "diana-pham" TAB "Diana" TAB "Pham" TAB "Diana Pham" TAB
         TAB TAB TAB TAB TAB TAB TAB TAB TAB "f" NL
+        DELIMITED BY SIZE INTO TSV.
+
+FILL-SPEAKER-WEBSITE.
+    STRING
+        "slug" TAB "first_name" TAB "last_name" TAB "name" TAB
+        "tagline" TAB "bio" TAB "company" TAB "location" TAB
+        "photo_path" TAB "twitter_url" TAB "linkedin_url" TAB
+        "website_url" TAB "github_url" TAB "featured" NL
+        "ada-lovelace" TAB "Ada" TAB "Lovelace" TAB "Ada Lovelace" TAB
+        TAB TAB TAB TAB TAB TAB TAB
+        "https://example.com/ada-lovelace" TAB TAB "f" NL
         DELIMITED BY SIZE INTO TSV.
 
 FILL-SPEAKER-MANY.

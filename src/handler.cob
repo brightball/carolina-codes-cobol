@@ -657,18 +657,22 @@ BUILD-JSON-FIELD.
             PERFORM PUT-FIELD-CH
             MOVE ":" TO WS-CH
             PERFORM PUT-FIELD-CH
-            MOVE '"' TO WS-CH
-            PERFORM PUT-FIELD-CH
-            IF ESC-LEN > 0
+            *> Empty optional strings are JSON null, not "". CMS treats "" as a link.
+            IF ESC-LEN = 0
+                MOVE "null" TO WS-SRC
+                PERFORM PUT-FIELD-STR
+            ELSE
+                MOVE '"' TO WS-CH
+                PERFORM PUT-FIELD-CH
                 MOVE ESC-OUT TO WS-SRC
                 MOVE ESC-LEN TO WS-N
                 PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
                     ADD 1 TO WS-K
                     MOVE WS-SRC(WS-I:1) TO FIELD-JSON(WS-K:1)
                 END-PERFORM
+                MOVE '"' TO WS-CH
+                PERFORM PUT-FIELD-CH
             END-IF
-            MOVE '"' TO WS-CH
-            PERFORM PUT-FIELD-CH
     END-EVALUATE.
 
 JSON-ESCAPE.
