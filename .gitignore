@@ -1,5 +1,8 @@
 /bin/carolina-cobol
+/bin/carolina-http-test
 /bin/test
+/bin/test-reconnect
+__pycache__/
 *.c.h
 *.i
 *.so

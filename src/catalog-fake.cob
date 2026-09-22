@@ -83,7 +83,11 @@ PROCEDURE DIVISION USING SQL ARG1 ARG2 NARGS TSV.
                 PERFORM FILL-YEAR-SPONSOR
             END-IF
         WHEN HIT-SPONSORS-SLUG > 0
-            PERFORM FILL-SPONSOR-HEADER
+            IF SLUG = "flywheel"
+                PERFORM FILL-SPONSOR
+            ELSE
+                PERFORM FILL-SPONSOR-HEADER
+            END-IF
         WHEN HIT-SPONSORS > 0
             PERFORM FILL-YEAR-SPONSOR
         WHEN HIT-YEARS > 0
@@ -187,6 +191,15 @@ FILL-SPONSOR-HEADER.
         "slug" TAB "name" TAB "website" TAB "logo_path" TAB
         "description" TAB "twitter_url" TAB "linkedin_url" TAB
         "youtube_url" TAB "instagram_url" TAB "facebook_url" NL
+        DELIMITED BY SIZE INTO TSV.
+
+FILL-SPONSOR.
+    STRING
+        "slug" TAB "name" TAB "website" TAB "logo_path" TAB
+        "description" TAB "twitter_url" TAB "linkedin_url" TAB
+        "youtube_url" TAB "instagram_url" TAB "facebook_url" NL
+        "flywheel" TAB "Flywheel" TAB "https://example.com/flywheel" TAB
+        TAB TAB TAB TAB TAB TAB NL
         DELIMITED BY SIZE INTO TSV.
 
 FILL-YEAR.

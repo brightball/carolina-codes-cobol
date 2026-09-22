@@ -1,13 +1,17 @@
-# One Gitea Actions job per check. Not a single combined job.
-# No needs: between the five; they clone GITHUB_SHA independently.
+# One Gitea Actions job per check, after a shared prepare stage.
+# Not a single combined job. Check jobs wait on prepare (not on one
+# another) so they run in parallel after prepare succeeds.
 #
-# Empty runner image: clone GITHUB_SHA with the job token over HTTPS.
-# Gitea git HTTP returns 401 without the token. Do not git init or set
-# init.defaultBranch here. Do not use actions/checkout.
+# act_runner starts a new container per job, so jobs cannot share a live
+# filesystem. Prepare is the only job that clones GITHUB_SHA (fail-closed
+# job-token HTTPS) and the only job that installs the shared toolchain:
+# Bookworm gnucobol/cobc, gcc, libpq headers, clang-format, trivy v0.74.0,
+# gitleaks v8.30.1, make, and compile deps. It persists workspace + tools
+# through the Gitea artifact HTTP API (no Node; upload-artifact@v4 aborts).
 #
-# GnuCOBOL: Debian bookworm's cobc 3.1.2 plus -free compiles these
-# free-format sources and the HANDLE-GET tests (verified). Production
-# still ships GnuCOBOL 3.2 from the Dockerfile.
+# Check jobs restore that environment and run only their Make target.
+# They do not git init, set init.defaultBranch, or use actions/checkout.
+# Do not git init or set init.defaultBranch here. Do not use actions/checkout.
 name: precommit
 
 on:
@@ -22,14 +26,20 @@ env:
   GITHUB_TOKEN: ${{ github.token }}
 
 jobs:
-  test:
+  prepare:
     runs-on: ubuntu-latest
     container:
       image: docker.io/library/debian:bookworm-slim
       env:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libgmp-dev gnucobol
+      - run: |
+          rm -f /etc/apt/apt.conf.d/docker-clean
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "1";' > /etc/apt/apt.conf.d/keep-debs
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl tar make gcc libc6-dev libgmp-dev gnucobol \
+            libpq-dev pkg-config clang-format python3
       - run: |
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
@@ -38,82 +48,143 @@ jobs:
           git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
           git fetch --depth 1 origin "${GITHUB_SHA}"
           git checkout --force FETCH_HEAD
-      - run: make test
-
-  sast:
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/library/debian:bookworm-slim
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libpq-dev pkg-config
-      - run: |
-          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
-          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
-          host="${GITHUB_SERVER_URL#https://}"
-          host="${host#http://}"
-          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
-          git fetch --depth 1 origin "${GITHUB_SHA}"
-          git checkout --force FETCH_HEAD
-      - run: make sast
-
-  audit:
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/library/debian:bookworm-slim
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make curl tar
-      - run: |
-          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
-          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
-          host="${GITHUB_SERVER_URL#https://}"
-          host="${host#http://}"
-          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
-          git fetch --depth 1 origin "${GITHUB_SHA}"
-          git checkout --force FETCH_HEAD
+          git remote set-url origin "${GITHUB_SERVER_URL%/}/${GITHUB_REPOSITORY}"
       - run: |
           curl -sSfL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
             | tar -xz -C /usr/local/bin trivy
-          make audit
-
-  gitleaks:
-    runs-on: ubuntu-latest
-    container:
-      image: docker.io/library/debian:bookworm-slim
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-    steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make curl tar
-      - run: |
-          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
-          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
-          host="${GITHUB_SERVER_URL#https://}"
-          host="${host#http://}"
-          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
-          git fetch --depth 1 origin "${GITHUB_SHA}"
-          git checkout --force FETCH_HEAD
-      - run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
             | tar -xz -C /usr/local/bin gitleaks
-          make gitleaks
+          chmod a+x /usr/local/bin/trivy /usr/local/bin/gitleaks
+          trivy version
+          gitleaks version
+      - run: bash scripts/ci-env.sh prepare
 
-  lint:
+  test:
+    needs: prepare
     runs-on: ubuntu-latest
     container:
       image: docker.io/library/debian:bookworm-slim
       env:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates make gcc libc6-dev libgmp-dev gnucobol clang-format
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
       - run: |
+          set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
-          if [ -z "$token" ]; then echo "missing job token for git fetch" >&2; exit 1; fi
+          if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
           host="${GITHUB_SERVER_URL#https://}"
           host="${host#http://}"
-          git clone --depth 1 --no-checkout "https://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}" .
-          git fetch --depth 1 origin "${GITHUB_SHA}"
-          git checkout --force FETCH_HEAD
+          out=/tmp/ci-env.sh
+          api="${GITHUB_SERVER_URL%/}/api/v1/repos/${GITHUB_REPOSITORY}/raw/scripts/ci-env.sh?ref=${GITHUB_SHA}"
+          if ! curl -fsSL -H "Authorization: token ${token}" "$api" -o "$out" || ! grep -q cmd_restore "$out"; then
+            scheme=https
+            case "${GITHUB_SERVER_URL}" in http://*) scheme=http ;; esac
+            curl -fsSL "${scheme}://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}/raw/commit/${GITHUB_SHA}/scripts/ci-env.sh" -o "$out"
+          fi
+          grep -q cmd_restore "$out"
+          bash "$out" restore
+      - run: make test
+
+  sast:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
+      - run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          out=/tmp/ci-env.sh
+          api="${GITHUB_SERVER_URL%/}/api/v1/repos/${GITHUB_REPOSITORY}/raw/scripts/ci-env.sh?ref=${GITHUB_SHA}"
+          if ! curl -fsSL -H "Authorization: token ${token}" "$api" -o "$out" || ! grep -q cmd_restore "$out"; then
+            scheme=https
+            case "${GITHUB_SERVER_URL}" in http://*) scheme=http ;; esac
+            curl -fsSL "${scheme}://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}/raw/commit/${GITHUB_SHA}/scripts/ci-env.sh" -o "$out"
+          fi
+          grep -q cmd_restore "$out"
+          bash "$out" restore
+      - run: make sast
+
+  audit:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
+      - run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          out=/tmp/ci-env.sh
+          api="${GITHUB_SERVER_URL%/}/api/v1/repos/${GITHUB_REPOSITORY}/raw/scripts/ci-env.sh?ref=${GITHUB_SHA}"
+          if ! curl -fsSL -H "Authorization: token ${token}" "$api" -o "$out" || ! grep -q cmd_restore "$out"; then
+            scheme=https
+            case "${GITHUB_SERVER_URL}" in http://*) scheme=http ;; esac
+            curl -fsSL "${scheme}://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}/raw/commit/${GITHUB_SHA}/scripts/ci-env.sh" -o "$out"
+          fi
+          grep -q cmd_restore "$out"
+          bash "$out" restore
+      - run: make audit
+
+  gitleaks:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
+      - run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          out=/tmp/ci-env.sh
+          api="${GITHUB_SERVER_URL%/}/api/v1/repos/${GITHUB_REPOSITORY}/raw/scripts/ci-env.sh?ref=${GITHUB_SHA}"
+          if ! curl -fsSL -H "Authorization: token ${token}" "$api" -o "$out" || ! grep -q cmd_restore "$out"; then
+            scheme=https
+            case "${GITHUB_SERVER_URL}" in http://*) scheme=http ;; esac
+            curl -fsSL "${scheme}://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}/raw/commit/${GITHUB_SHA}/scripts/ci-env.sh" -o "$out"
+          fi
+          grep -q cmd_restore "$out"
+          bash "$out" restore
+      - run: make gitleaks
+
+  lint:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/library/debian:bookworm-slim
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
+      - run: |
+          set -euo pipefail
+          token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
+          if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
+          host="${GITHUB_SERVER_URL#https://}"
+          host="${host#http://}"
+          out=/tmp/ci-env.sh
+          api="${GITHUB_SERVER_URL%/}/api/v1/repos/${GITHUB_REPOSITORY}/raw/scripts/ci-env.sh?ref=${GITHUB_SHA}"
+          if ! curl -fsSL -H "Authorization: token ${token}" "$api" -o "$out" || ! grep -q cmd_restore "$out"; then
+            scheme=https
+            case "${GITHUB_SERVER_URL}" in http://*) scheme=http ;; esac
+            curl -fsSL "${scheme}://x-access-token:${token}@${host}/${GITHUB_REPOSITORY}/raw/commit/${GITHUB_SHA}/scripts/ci-env.sh" -o "$out"
+          fi
+          grep -q cmd_restore "$out"
+          bash "$out" restore
       - run: make lint

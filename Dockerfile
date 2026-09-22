@@ -4,7 +4,9 @@ RUN apt-get update \
       gcc make libc6-dev libpq-dev libgmp-dev ca-certificates curl xz-utils \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+COPY scripts/verify-gnucobol-tarball.sh /src/verify-gnucobol-tarball.sh
 RUN curl -fsSL -o gnucobol.tar.xz https://ftp.gnu.org/gnu/gnucobol/gnucobol-3.2.tar.xz \
+ && sh verify-gnucobol-tarball.sh gnucobol.tar.xz \
  && tar -xJf gnucobol.tar.xz \
  && cd gnucobol-3.2 \
  && CFLAGS="-O2 -pipe -std=gnu17 -Wno-incompatible-pointer-types -Wno-implicit-function-declaration -Wno-int-conversion" \
@@ -14,9 +16,10 @@ RUN curl -fsSL -o gnucobol.tar.xz https://ftp.gnu.org/gnu/gnucobol/gnucobol-3.2.
 COPY src /src/app/src
 WORKDIR /src/app
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN cobc -x -O -o /src/carolina-cobol \
+RUN cobc -x -O2 -o /src/carolina-cobol \
       src/server.cob src/handler.cob src/catalog.cob src/pq.c src/listen6.c \
-      -lpq -A "-I/usr/include/postgresql"
+      -lpq -lpthread -A "-I/usr/include/postgresql" \
+ && strip --strip-unneeded /src/carolina-cobol
 
 FROM debian:bookworm-slim
 RUN apt-get update \
