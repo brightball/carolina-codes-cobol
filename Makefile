@@ -10,6 +10,10 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.local/share/mise/installs/gitleaks/8.
 # GnuCOBOL 3.2 accepts >>SOURCE FORMAT FREE at column 1; 3.1.2 needs -free.
 COBCFLAGS ?= -free
 PQ_CFLAGS ?= $(shell pkg-config --cflags libpq 2>/dev/null)
+# Bookworm keeps libpq-fe.h under /usr/include/postgresql, not the default path.
+ifeq ($(strip $(PQ_CFLAGS)),)
+  PQ_CFLAGS := -I/usr/include/postgresql
+endif
 
 GITLEAKS ?= gitleaks
 TRIVY ?= trivy
@@ -26,7 +30,7 @@ bin:
 server: bin
 	$(COBC) $(COBCFLAGS) -x -O2 -o bin/carolina-cobol \
 		src/server.cob src/handler.cob src/catalog.cob \
-		src/pq.c src/listen6.c -lpq -lpthread
+		src/pq.c src/listen6.c -lpq -lpthread -A "$(PQ_CFLAGS)"
 	strip --strip-unneeded bin/carolina-cobol
 
 http-bin: bin
