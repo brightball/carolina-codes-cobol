@@ -68,7 +68,8 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
-      - run: |
+      - shell: bash
+        run: |
           set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
@@ -94,7 +95,8 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
-      - run: |
+      - shell: bash
+        run: |
           set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
@@ -120,7 +122,8 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
-      - run: |
+      - shell: bash
+        run: |
           set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
@@ -146,7 +149,8 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
-      - run: |
+      - shell: bash
+        run: |
           set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
@@ -172,7 +176,8 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl python3
-      - run: |
+      - shell: bash
+        run: |
           set -euo pipefail
           token="${GITHUB_TOKEN:-${GITEA_TOKEN:-}}"
           if [ -z "$token" ]; then echo "missing job token" >&2; exit 1; fi
