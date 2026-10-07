@@ -1,10 +1,25 @@
 # carolina-codes-cobol
 
-Read-only v1 polyglot API for Carolina Code Conference. **GnuCOBOL 3.2** sources compiled by `cobc`, served over **POSIX sockets**.
+Read-only v1 polyglot API for Carolina Code Conference.
 
-`HANDLE-GET` is the shipped router (`src/handler.cob`). Tests `CALL` that program with a fake `CATALOG-QUERY` — they do not reimplement routing. Live SQL goes through `src/catalog.cob` → `carolina_query` in `src/pq.c` (libpq) against PostgreSQL `v1_*` views.
+## Runtime
 
-How this is possible, and what actually happened on this machine, is in [COBOL.md](COBOL.md).
+`GET /` reports the versions this process actually serves:
+
+- Language version: **GnuCOBOL 3.2** (`language_version`). Sources are free-format GnuCOBOL, compiled by `cobc`.
+- Framework: **POSIX sockets**. POSIX sockets have no package version. This API does not invent a framework semver.
+- API version string: `0.2.0`.
+
+Notable packages added for this stack:
+
+- **libpq** — parameterized queries through `src/pq.c` (`libpq-dev` at build, `libpq5` in the image).
+- **libgmp** — GnuCOBOL runtime library. The image installs `libgmp10`. The build stage installs `libgmp-dev`. `libcob` links it.
+
+The image and a local GnuCOBOL 3.2 prefix are built from the GNU 3.2 tarball. Gitea CI installs Debian Bookworm packaged `gnucobol` and compiles with `make`, which passes `-free`. Those are two compilers. Identity stays GnuCOBOL 3.2 because that is what the image serves.
+
+`HANDLE-GET` is the shipped router (`src/handler.cob`). Tests `CALL` that program with a fake `CATALOG-QUERY`. They do not reimplement routing. Live SQL goes through `src/catalog.cob` to `carolina_query` in `src/pq.c` (libpq) and returns TSV from PostgreSQL `v1_*` views.
+
+How the FFI works, and what happened while bringing the compiler up, is in [COBOL.md](COBOL.md). Decisions are in [DECISIONS.md](DECISIONS.md). The current-state index is [MEMORY.md](MEMORY.md). Agent rules are in [AGENTS.md](AGENTS.md).
 
 ```bash
 make test        # HANDLE-GET tests (CALL shipped router, fake catalog)
@@ -27,6 +42,6 @@ PORT=4027 \
 ./bin/server
 ```
 
-`GET /` reports `language: "COBOL"` and `framework: "POSIX sockets"`. `GET /health` returns `{"status":"ok"}` without touching Postgres. Listen port is **4027**.
+`GET /` reports `language: "COBOL"` and `framework: "POSIX sockets"`. `GET /health` returns `{"status":"ok"}` without touching Postgres. The local listen fallback is port **4027**. The container image sets `PORT=8080`.
 
-GnuCOBOL is expected at `$HOME/.local/opt/gnucobol-3.2` (see COBOL.md). `bin/server` puts that prefix on `PATH` / `LD_LIBRARY_PATH`.
+GnuCOBOL for local builds is expected at `$HOME/.local/opt/gnucobol-3.2` (see COBOL.md). `bin/server` puts that prefix on `PATH` / `LD_LIBRARY_PATH` when the prefix exists. Otherwise `make` uses `cobc` on `PATH`.
