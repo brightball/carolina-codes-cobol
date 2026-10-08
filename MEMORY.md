@@ -10,7 +10,7 @@ If this index disagrees with `AGENTS.md` or `DECISIONS.md`, those files win. Fix
 - Register once on boot and keep serving if the CMS is down (no heartbeat). `GET /health` returns `{"status":"ok"}` and does not touch the database.
 - Identity reported by `GET /`: language COBOL, framework POSIX sockets, language version GnuCOBOL 3.2. POSIX sockets have no framework package version. API version string is `0.2.0`.
 - Sources are free-format GnuCOBOL (`-free`). See ADR-0002.
-- Live SQL and listening go through the C trampolines (`src/pq.c` libpq, `src/listen6.c` dual-stack listen). Not embedded SQL. Not a copy of another sibling's server. See ADR-0001.
+- Live SQL and listening go through the C trampolines (`src/pq.c` libpq, `src/listen6.c` dual-stack listen). Not embedded SQL. Not a copy of another sibling's server. See ADR-0001. A cached libpq session that dies is abandoned within one second and the query is retried once. See ADR-0007.
 - Rows cross the FFI as TSV. See ADR-0003. PIC X buffers are space-padded. Null-terminate before `CALL`, and `MOVE SPACES` before reusing a field. See ADR-0006.
 - The image and the local compiler are GnuCOBOL 3.2. Gitea CI installs Debian Bookworm packaged `gnucobol`. See ADR-0004.
 - Year-scoped speaker detail includes a `talks` array. See ADR-0005.
@@ -29,3 +29,4 @@ If this index disagrees with `AGENTS.md` or `DECISIONS.md`, those files win. Fix
 | GnuCOBOL 3.2 in the image and local prefix; Bookworm `gnucobol` in Gitea CI | `DECISIONS.md` ADR-0004 |
 | `talks` on year-scoped speaker detail | `DECISIONS.md` ADR-0005 |
 | PIC X is not a C string | `DECISIONS.md` ADR-0006 |
+| Dead libpq session abandoned within one second, then one retry | `DECISIONS.md` ADR-0007 |
